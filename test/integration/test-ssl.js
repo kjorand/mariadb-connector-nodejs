@@ -14,7 +14,7 @@ describe('ssl', function () {
   let sslEnable = false;
   let sslPort = Conf.baseConfig.port;
 
-  before(function (done) {
+  before(async function () {
     if (process.env.TEST_MAXSCALE_TLS_PORT) sslPort = parseInt(process.env.TEST_MAXSCALE_TLS_PORT);
     if (
       tls.DEFAULT_MIN_VERSION === 'TLSv1.2' &&
@@ -45,11 +45,21 @@ describe('ssl', function () {
       (Conf.baseConfig.host === 'localhost' || Conf.baseConfig.host === 'mariadb.example.com')
     ) {
       try {
-        if (fs.existsSync('../../ssl')) {
-          serverCaFile = '../../ssl/server.crt';
-          clientKeyFileName = '../../ssl/client.key';
-          clientCertFileName = '../../ssl/client.crt';
-          clientKeystoreFileName = '../../ssl/fullclient-keystore.p12';
+        let path = '../../ssl';
+        let found = false;
+        if (fs.existsSync(path)) {
+          found = true;
+        } else {
+          path = '../ssl';
+        }
+        if (fs.existsSync(path)) {
+          found = true;
+        }
+        if (found) {
+          serverCaFile = `${path}/server.crt`;
+          clientKeyFileName = `${path}/client.key`;
+          clientCertFileName = `${path}/client.crt`;
+          clientKeystoreFileName = `${path}/fullclient-keystore.p12`;
         }
       } catch (err) {
         console.error(err);
@@ -61,88 +71,76 @@ describe('ssl', function () {
     if (clientCertFileName) clientCert = [fs.readFileSync(clientCertFileName, 'utf8')];
     if (clientKeystoreFileName) clientKeystore = [fs.readFileSync(clientKeystoreFileName)];
 
-    shareConn
-      .query("DROP USER IF EXISTS 'sslTestUser'@'%'")
-      .then(() => {
-        return shareConn.query("DROP USER IF EXISTS 'X509testUser'@'%'");
-      })
-      .then(() => {
-        return shareConn.query(
-          "CREATE USER 'sslTestUser'@'%' IDENTIFIED BY 'ytoKS@ç%ùed5' " +
-            ((shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(10, 2, 0)) ||
-            (!shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(5, 7, 0))
-              ? ' REQUIRE SSL'
-              : '')
-        );
-      })
-      .then(() => {
-        return shareConn.query(
-          "GRANT SELECT ON *.* TO 'sslTestUser'@'%' " +
-            ((shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(10, 2, 0)) ||
-            (!shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(5, 7, 0))
-              ? ' REQUIRE SSL'
-              : '')
-        );
-      })
-      .then(() => {
-        return shareConn.query(
-          "CREATE USER 'X509testUser'@'%' IDENTIFIED BY 'éà@d684SQpl¨^' " +
-            ((shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(10, 2, 0)) ||
-            (!shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(5, 7, 0))
-              ? ' REQUIRE X509'
-              : '')
-        );
-      })
-      .then(() => {
-        return shareConn.query(
-          "GRANT SELECT ON *.* TO 'X509testUser'@'%' " +
-            ((shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(10, 2, 0)) ||
-            (!shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(5, 7, 0))
-              ? ' REQUIRE X509'
-              : '')
-        );
-      })
-      .then(() => {
-        if (!shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(8)) {
-          return shareConn.query(
-            "ALTER USER 'sslTestUser'@'%' IDENTIFIED WITH 'mysql_native_password' BY 'ytoKS@ç%ùed5'"
-          );
-        }
-        return shareConn.query("SET PASSWORD FOR 'sslTestUser'@'%' = PASSWORD('ytoKS@ç%ùed5')");
-      })
-      .then(() => {
-        if (!shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(8)) {
-          return shareConn.query(
-            "ALTER USER 'X509testUser'@'%' IDENTIFIED WITH 'mysql_native_password' BY 'éà@d684SQpl¨^'"
-          );
-        }
-        return shareConn.query("SET PASSWORD FOR 'X509testUser'@'%' = PASSWORD('éà@d684SQpl¨^')");
-      })
-      .then(() => {
-        return shareConn.query('FLUSH PRIVILEGES');
-      })
-      .then(() => {
-        return shareConn.query("SHOW VARIABLES LIKE 'have_ssl'");
-      })
-      .then((rows) => {
-        if (rows[0].Value === 'YES') {
-          sslEnable = true;
-          done();
-        } else {
-          //ssl is not enable on database, skipping test.
-          shareConn
-            .query("SHOW VARIABLES LIKE '%ssl%'")
-            .then((rows) => {
-              // console.log("ssl is not enable on database, skipping test :");
-              // for (let i = 0; i < rows.length; i++) {
-              //   console.log(rows[0]["Variable_name"] + " = " + rows[0]["Value"]);
-              // }
-              done();
-            })
-            .catch(done);
-        }
-      })
-      .catch(done);
+    shareConn.query("DROP USER 'sslTestUser'@'%'").catch((e) => {});
+    shareConn.query("DROP USER 'X509testUser'@'%'").catch((e) => {});
+    await shareConn.query(
+      "CREATE USER 'sslTestUser'@'%' IDENTIFIED BY 'ytoKS@ç%ùed5' " +
+        ((shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(10, 2, 0)) ||
+        (!shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(5, 7, 0))
+          ? ' REQUIRE SSL'
+          : '')
+    );
+    await shareConn.query(
+      "GRANT SELECT ON *.* TO 'sslTestUser'@'%' " +
+        ((shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(10, 2, 0)) ||
+        (!shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(5, 7, 0))
+          ? ' REQUIRE SSL'
+          : '')
+    );
+    await shareConn.query(
+      "CREATE USER 'X509testUser'@'%' IDENTIFIED BY 'éà@d684SQpl¨^' " +
+        ((shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(10, 2, 0)) ||
+        (!shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(5, 7, 0))
+          ? ' REQUIRE X509'
+          : '')
+    );
+    await shareConn.query(
+      "GRANT SELECT ON *.* TO 'X509testUser'@'%' " +
+        ((shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(10, 2, 0)) ||
+        (!shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(5, 7, 0))
+          ? ' REQUIRE X509'
+          : '')
+    );
+    if (!shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(8)) {
+      await shareConn.query(
+        "ALTER USER 'sslTestUser'@'%' IDENTIFIED WITH 'mysql_native_password' BY 'ytoKS@ç%ùed5'"
+      );
+      await shareConn.query(
+        "ALTER USER 'X509testUser'@'%' IDENTIFIED WITH 'mysql_native_password' BY 'éà@d684SQpl¨^'"
+      );
+    } else {
+      await shareConn.query("SET PASSWORD FOR 'sslTestUser'@'%' = PASSWORD('ytoKS@ç%ùed5')");
+      await shareConn.query("SET PASSWORD FOR 'X509testUser'@'%' = PASSWORD('éà@d684SQpl¨^')");
+    }
+    await shareConn.query('FLUSH PRIVILEGES');
+    let rows = await shareConn.query("SHOW VARIABLES LIKE 'have_ssl'");
+    if (rows.length > 0 && rows[0].Value === 'YES') {
+      sslEnable = true;
+    } else {
+      //ssl is not enable on database, skipping test.
+      rows = await shareConn.query("SHOW VARIABLES LIKE '%ssl%'");
+      // console.log("ssl is not enable on database, skipping test :");
+      // for (let i = 0; i < rows.length; i++) {
+      //   console.log(rows[0]["Variable_name"] + " = " + rows[0]["Value"]);
+      // }
+    }
+  });
+
+  it('error when server ssl is disable', async function () {
+    if (sslEnable || process.env.srv === 'skysql-ha') {
+      this.skip();
+      return;
+    }
+    try {
+      await base.createConnection({
+        ssl: { rejectUnauthorized: false },
+        port: sslPort
+      });
+      throw new Error('Must have thrown an exception !');
+    } catch (err) {
+      assert.equal(err.errno, 45023);
+      assert.equal(err.code, 'ER_SERVER_SSL_DISABLED');
+    }
   });
 
   it('signed certificate error', async function () {
@@ -159,6 +157,7 @@ describe('ssl', function () {
     } catch (err) {
       assert(
         err.message.includes('self signed certificate') ||
+          err.message.includes('self-signed certificate') ||
           err.message.includes('unable to get local issuer certificate'),
         err.message
       );
@@ -550,6 +549,10 @@ describe('ssl', function () {
     if (!ca || !clientKeystore) this.skip();
     if (!base.utf8Collation()) this.skip();
 
+    const ver = process.version.substring(1).split('.');
+    //on node.js 17+ client keystore won't be supported until installing openssl 3.0
+    if (parseInt(ver[0]) >= 17) this.skip();
+
     base
       .createConnection({
         user: 'X509testUser',
@@ -560,7 +563,8 @@ describe('ssl', function () {
           pfx: clientKeystore,
           passphrase: 'kspass'
         },
-        port: sslPort
+        port: sslPort,
+        debug: true
       })
       .then((conn) => {
         conn.end();
@@ -582,7 +586,7 @@ describe('ssl', function () {
       })
       .then((con) => {
         conn = con;
-        conn.query("DROP USER IF EXISTS ChangeUser@'%'").catch((err) => {});
+        conn.query("DROP USER ChangeUser@'%'").catch((err) => {});
         conn.query('FLUSH PRIVILEGES');
         conn.query("CREATE USER ChangeUser@'%' IDENTIFIED BY 'mySupPassw@rd2'");
         conn.query("GRANT SELECT ON *.* TO ChangeUser@'%' with grant option");

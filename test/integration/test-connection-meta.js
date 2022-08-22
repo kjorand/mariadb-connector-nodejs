@@ -4,18 +4,17 @@ const base = require('../base.js');
 const assert = require('chai').assert;
 
 describe('Connection meta', function () {
-  it('server version', () => {
-    const serverVersion = shareConn.serverVersion();
-    if (process.env.srv) {
-      if (
-        process.env.srv !== 'skysql' &&
-        process.env.srv !== 'skysql-ha' &&
-        process.env.srv !== 'maxscale'
-      ) {
-        const version = process.env.v;
-        assert(serverVersion.startsWith(version), serverVersion + '/' + version);
-      }
-    }
+  it('server version', async function () {
+    if (
+      process.env.srv === 'skysql' ||
+      process.env.srv === 'skysql-ha' ||
+      process.env.srv === 'maxscale' ||
+      process.env.srv === 'build'
+    )
+      this.skip();
+
+    const res = await shareConn.query('SELECT VERSION() a');
+    assert.deepEqual(res, [{ a: shareConn.serverVersion() }]);
   });
 
   it('server version before connect error', (done) => {
