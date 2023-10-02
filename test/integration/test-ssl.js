@@ -10,6 +10,7 @@ const Conf = require('../conf');
 const tls = require('tls');
 const { isXpand } = require('../base');
 const crypto = require('crypto');
+const errors = require('../../lib/misc/errors');
 
 describe('ssl', function () {
   let ca = Conf.baseConfig.ssl && Conf.baseConfig.ssl.ca ? Conf.baseConfig.ssl.ca : null;
@@ -168,7 +169,10 @@ describe('ssl', function () {
         port: sslPort
       });
       conn.end();
-      throw new Error('Must have thrown an exception !');
+      // if not ephemeral certificate must throw error
+      if (!shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(11, 3, 0)) {
+        throw new Error('Must have thrown an exception !');
+      }
     } catch (err) {
       assert(
         err.message.includes('self signed certificate') ||
@@ -189,6 +193,72 @@ describe('ssl', function () {
         done();
       })
       .catch(done);
+  });
+
+  it('self signed certificate server before ephemeral', async function () {
+    if (process.env.srv === 'maxscale' || process.env.srv === 'skysql-ha') this.skip();
+    if (!sslEnable) this.skip();
+
+    // test will work either because server certificate chain is trusted (not don in tests)
+    // or using mariadb ephemeral certificate validation
+    if (!shareConn.info.isMariaDB() || shareConn.info.hasMinVersion(11, 3, 0)) this.skip();
+    try {
+      await base.createConnection({ ssl: true, port: sslPort });
+      throw new Error('must have thrown error');
+    } catch (e) {
+      assert.equal(e.errno, errors.ER_SELF_SIGNED);
+    }
+  });
+
+  it('self signed certificate forcing no password', async function () {
+    if (process.env.srv === 'maxscale' || process.env.srv === 'skysql-ha') this.skip();
+    if (!sslEnable) this.skip();
+
+    // test will work either because server certificate chain is trusted (not don in tests)
+    // or using mariadb ephemeral certificate validation
+    if (shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(11, 3, 0)) this.skip();
+    if (Conf.baseConfig.password) this.skip();
+    try {
+      await base.createConnection({ ssl: true, port: sslPort });
+      throw new Error('must have thrown error');
+    } catch (e) {
+      assert.equal(e.errno, errors.ER_SELF_SIGNED_NO_PWD);
+    }
+  });
+
+  it('self signed certificate forcing with password ssl:true', async function () {
+    if (process.env.srv === 'maxscale' || process.env.srv === 'skysql-ha') this.skip();
+    if (!sslEnable) this.skip();
+
+    // test will work either because server certificate chain is trusted (not don in tests)
+    // or using mariadb ephemeral certificate validation
+    if (!shareConn.info.isMariaDB() || !shareConn.info.hasMinVersion(11, 3, 0)) this.skip();
+    if (Conf.baseConfig.password === null) this.skip();
+    const conn = await base.createConnection({
+      user: 'sslTestUser',
+      password: 'ytoKS@ç%ùed5',
+      ssl: true,
+      port: sslPort
+    });
+    await conn.end();
+  });
+
+  it('self signed certificate forcing with password ssl: {rejectUnauthorized: true}', async function () {
+    if (process.env.srv === 'maxscale' || process.env.srv === 'skysql-ha') this.skip();
+    if (!sslEnable) this.skip();
+
+    // test will work either because server certificate chain is trusted (not don in tests)
+    // or using mariadb ephemeral certificate validation
+    if (!shareConn.info.isMariaDB() || !shareConn.info.hasMinVersion(11, 3, 0)) this.skip();
+    if (Conf.baseConfig.password === null) this.skip();
+
+    const conn = await base.createConnection({
+      user: 'sslTestUser',
+      password: 'ytoKS@ç%ùed5',
+      ssl: { rejectUnauthorized: true },
+      port: sslPort
+    });
+    await conn.end();
   });
 
   it('ensure connection use SSL ', function (done) {
