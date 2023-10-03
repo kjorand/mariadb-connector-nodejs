@@ -227,7 +227,13 @@ describe('ssl', function () {
   });
 
   it('self signed certificate forcing with password ssl:true', async function () {
-    if (process.env.srv === 'maxscale' || process.env.srv === 'skysql-ha') this.skip();
+    if (
+      process.env.srv === 'maxscale' ||
+      process.env.srv === 'skysql-ha' ||
+      process.env.srv === 'mariadb-es' ||
+      process.env.srv === 'mariadb-es-test'
+    )
+      this.skip();
     if (!sslEnable) this.skip();
 
     // test will work either because server certificate chain is trusted (not don in tests)
@@ -244,7 +250,13 @@ describe('ssl', function () {
   });
 
   it('self signed certificate forcing with password ssl: {rejectUnauthorized: true}', async function () {
-    if (process.env.srv === 'maxscale' || process.env.srv === 'skysql-ha') this.skip();
+    if (
+      process.env.srv === 'maxscale' ||
+      process.env.srv === 'skysql-ha' ||
+      process.env.srv === 'mariadb-es' ||
+      process.env.srv === 'mariadb-es-test'
+    )
+      this.skip();
     if (!sslEnable) this.skip();
 
     // test will work either because server certificate chain is trusted (not don in tests)
