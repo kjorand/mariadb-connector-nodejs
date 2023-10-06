@@ -161,14 +161,15 @@ describe('ssl', function () {
 
   it('signed certificate error', async function () {
     if (!sslEnable) this.skip();
+    let conn = null;
     try {
-      const conn = await base.createConnection({
+      conn = await base.createConnection({
         user: 'sslTestUser',
         password: 'ytoKS@ç%ùed5',
         ssl: true,
         port: sslPort
       });
-      conn.end();
+      await validConnection(conn);
       // if not ephemeral certificate must throw error
       if (!shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(11, 3, 0)) {
         throw new Error('Must have thrown an exception !');
@@ -181,18 +182,16 @@ describe('ssl', function () {
           err.message.includes('unable to verify the first certificate'),
         err.message
       );
+    } finally {
+      if (conn != null) conn.end();
     }
   });
 
-  it('signed certificate forcing', function (done) {
+  it('signed certificate forcing', async function () {
     if (!sslEnable) this.skip();
-    base
-      .createConnection({ ssl: { rejectUnauthorized: false }, port: sslPort })
-      .then((conn) => {
-        conn.end();
-        done();
-      })
-      .catch(done);
+    const conn = await base.createConnection({ ssl: { rejectUnauthorized: false }, port: sslPort });
+    await validConnection(conn);
+    await conn.end();
   });
 
   it('self signed certificate server before ephemeral', async function () {
@@ -214,7 +213,7 @@ describe('ssl', function () {
     if (process.env.srv === 'maxscale' || process.env.srv === 'skysql-ha') this.skip();
     if (!sslEnable) this.skip();
 
-    // test will work either because server certificate chain is trusted (not don in tests)
+    // test will work either because server certificate chain is trusted (not done in tests)
     // or using mariadb ephemeral certificate validation
     if (shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(11, 3, 0)) this.skip();
     if (Conf.baseConfig.password) this.skip();
@@ -222,7 +221,7 @@ describe('ssl', function () {
       await base.createConnection({ ssl: true, port: sslPort });
       throw new Error('must have thrown error');
     } catch (e) {
-      assert.equal(e.errno, errors.ER_SELF_SIGNED_NO_PWD);
+      assert.equal(e.errno, errors.ER_SELF_SIGNED);
     }
   });
 
@@ -239,13 +238,14 @@ describe('ssl', function () {
     // test will work either because server certificate chain is trusted (not don in tests)
     // or using mariadb ephemeral certificate validation
     if (!shareConn.info.isMariaDB() || !shareConn.info.hasMinVersion(11, 3, 0)) this.skip();
-    if (Conf.baseConfig.password === null) this.skip();
+    if (!Conf.baseConfig.password) this.skip();
     const conn = await base.createConnection({
       user: 'sslTestUser',
       password: 'ytoKS@ç%ùed5',
       ssl: true,
       port: sslPort
     });
+    await validConnection(conn);
     await conn.end();
   });
 
@@ -262,7 +262,7 @@ describe('ssl', function () {
     // test will work either because server certificate chain is trusted (not don in tests)
     // or using mariadb ephemeral certificate validation
     if (!shareConn.info.isMariaDB() || !shareConn.info.hasMinVersion(11, 3, 0)) this.skip();
-    if (Conf.baseConfig.password === null) this.skip();
+    if (!Conf.baseConfig.password) this.skip();
 
     const conn = await base.createConnection({
       user: 'sslTestUser',
@@ -270,68 +270,54 @@ describe('ssl', function () {
       ssl: { rejectUnauthorized: true },
       port: sslPort
     });
+    await validConnection(conn);
     await conn.end();
   });
 
-  it('ensure connection use SSL ', function (done) {
+  it('ensure connection use SSL ', async function () {
     if (process.env.srv === 'maxscale' || process.env.srv === 'skysql-ha') this.skip();
     if (!sslEnable) this.skip();
     if (!base.utf8Collation()) this.skip();
-    base
-      .createConnection({
-        user: 'sslTestUser',
-        password: 'ytoKS@ç%ùed5',
-        ssl: { rejectUnauthorized: false },
-        port: sslPort
-      })
-      .then((conn) => {
-        conn.end();
-        done();
-      })
-      .catch((err) => {
-        console.log(err);
-        done(err);
-      });
+    const conn = await base.createConnection({
+      user: 'sslTestUser',
+      password: 'ytoKS@ç%ùed5',
+      ssl: { rejectUnauthorized: false },
+      port: sslPort
+    });
+    await validConnection(conn);
+    conn.end();
   });
 
-  it('SSLv3 disable', function (done) {
+  it('SSLv3 disable', async function () {
     if (!sslEnable) this.skip();
-    base
-      .createConnection({
+    try {
+      await base.createConnection({
         ssl: {
           rejectUnauthorized: false,
           secureProtocol: 'SSLv3_client_method'
         },
         port: sslPort
-      })
-      .then((conn) => {
-        conn.end();
-        done(new Error('Must have thrown an exception !'));
-      })
-      .catch((err) => {
-        assert(err.message.includes('SSLv3 methods disabled'));
-        done();
       });
+      throw new Error('Must have thrown an exception !');
+    } catch (err) {
+      assert(err.message.includes('SSLv3 methods disabled'));
+    }
   });
 
-  it('SSLv2 disable', function (done) {
+  it('SSLv2 disable', async function () {
     if (!sslEnable) this.skip();
-    base
-      .createConnection({
+    try {
+      await base.createConnection({
         ssl: { rejectUnauthorized: false, secureProtocol: 'SSLv2_method' },
         port: sslPort
-      })
-      .then((conn) => {
-        conn.end();
-        done(new Error('Must have thrown an exception !'));
-      })
-      .catch((err) => {
-        assert(err.message.includes('SSLv2 methods disabled'));
-        done();
       });
+      throw new Error('Must have thrown an exception !');
+    } catch (err) {
+      assert(err.message.includes('SSLv2 methods disabled'));
+    }
   });
 
-  it('TLSv1 working', function (done) {
+  it('TLSv1 working', async function () {
     if (
       !sslEnable ||
       (shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(10, 3, 0)) ||
@@ -341,20 +327,15 @@ describe('ssl', function () {
       this.skip();
       return;
     }
-    base
-      .createConnection({
-        ssl: { rejectUnauthorized: false, secureProtocol: 'TLSv1_method' },
-        port: sslPort
-      })
-      .then((conn) => {
-        checkProtocol(conn, 'TLSv1');
-        conn.end();
-        done();
-      })
-      .catch(done);
+    const conn = await base.createConnection({
+      ssl: { rejectUnauthorized: false, secureProtocol: 'TLSv1_method' },
+      port: sslPort
+    });
+    checkProtocol(conn, 'TLSv1');
+    conn.end();
   });
 
-  it('TLSv1.1 working', function (done) {
+  it('TLSv1.1 working', async function () {
     if (
       !sslEnable ||
       (shareConn.info.isMariaDB() && shareConn.info.hasMinVersion(10, 3, 0)) ||
@@ -364,20 +345,15 @@ describe('ssl', function () {
       this.skip();
       return;
     }
-    base
-      .createConnection({
-        ssl: { rejectUnauthorized: false, secureProtocol: 'TLSv1_1_method' },
-        port: sslPort
-      })
-      .then((conn) => {
-        checkProtocol(conn, 'TLSv1.1');
-        conn.end();
-        done();
-      })
-      .catch(done);
+    const conn = await base.createConnection({
+      ssl: { rejectUnauthorized: false, secureProtocol: 'TLSv1_1_method' },
+      port: sslPort
+    });
+    checkProtocol(conn, 'TLSv1.1');
+    conn.end();
   });
 
-  it('TLSv1.1 with permit cipher', function (done) {
+  it('TLSv1.1 with permit cipher', async function () {
     if (
       !sslEnable ||
       process.env.srv === 'skysql' ||
@@ -389,28 +365,20 @@ describe('ssl', function () {
       this.skip();
       return;
     }
-    base
-      .createConnection({
-        ssl: {
-          rejectUnauthorized: false,
-          secureProtocol: 'TLSv1_1_method',
-          ciphers:
-            'DHE-RSA-AES256-SHA:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256'
-        },
-        port: sslPort
-      })
-      .then((conn) => {
-        checkProtocol(conn, 'TLSv1.1');
-        conn.end();
-        done();
-      })
-      .catch((err) => {
-        console.log(err);
-        done(err);
-      });
+    const conn = await base.createConnection({
+      ssl: {
+        rejectUnauthorized: false,
+        secureProtocol: 'TLSv1_1_method',
+        ciphers:
+          'DHE-RSA-AES256-SHA:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256'
+      },
+      port: sslPort
+    });
+    checkProtocol(conn, 'TLSv1.1');
+    conn.end();
   });
 
-  it('TLSv1.1 no common cipher', function (done) {
+  it('TLSv1.1 no common cipher', async function () {
     if (!sslEnable) this.skip();
     if (
       !shareConn.info.isMariaDB() &&
@@ -419,26 +387,22 @@ describe('ssl', function () {
       this.skip();
       return;
     }
-    base
-      .createConnection({
+    try {
+      await base.createConnection({
         ssl: {
           rejectUnauthorized: false,
           secureProtocol: 'TLSv1_1_method',
           ciphers: 'ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256'
         },
         port: sslPort
-      })
-      .then((conn) => {
-        conn.end();
-        done(new Error('Must have thrown an exception !'));
-      })
-      .catch((err) => {
-        assert(err.message.includes('no ciphers available'));
-        done();
       });
+      throw new Error('Must have thrown an exception !');
+    } catch (err) {
+      assert(err.message.includes('no ciphers available'));
+    }
   });
 
-  it('TLSv1.1 wrong cipher', function (done) {
+  it('TLSv1.1 wrong cipher', async function () {
     if (!sslEnable) this.skip();
     if (
       !shareConn.info.isMariaDB() &&
@@ -448,46 +412,37 @@ describe('ssl', function () {
       return;
     }
 
-    base
-      .createConnection({
+    try {
+      await base.createConnection({
         ssl: {
           rejectUnauthorized: false,
           secureProtocol: 'TLSv1_1_method',
           ciphers: 'ECDHE-ECDSA-AES256-STRANGE'
         },
         port: sslPort
-      })
-      .then((conn) => {
-        conn.end();
-        done(new Error('Must have thrown an exception !'));
-      })
-      .catch((err) => {
-        assert(err.message.includes('no ciphers available') || err.message.includes('no cipher match'));
-        done();
       });
+      throw new Error('Must have thrown an exception !');
+    } catch (err) {
+      assert(err.message.includes('no ciphers available') || err.message.includes('no cipher match'));
+    }
   });
 
-  it('TLSv1.2 working', function (done) {
+  it('TLSv1.2 working', async function () {
     if (!sslEnable) this.skip();
     //MariaDB server doesn't permit TLSv1.2 on windows
     //MySQL community version doesn't support TLSv1.2
     const isWin = process.platform === 'win32';
     if (isWin || !shareConn.info.isMariaDB()) this.skip();
 
-    base
-      .createConnection({
-        ssl: { rejectUnauthorized: false, secureProtocol: 'TLSv1_2_method' },
-        port: sslPort
-      })
-      .then((conn) => {
-        checkProtocol(conn, 'TLSv1.2');
-        conn.end();
-        done();
-      })
-      .catch(done);
+    const conn = await base.createConnection({
+      ssl: { rejectUnauthorized: false, secureProtocol: 'TLSv1_2_method' },
+      port: sslPort
+    });
+    checkProtocol(conn, 'TLSv1.2');
+    await conn.end();
   });
 
-  it('TLSv1.2 with cipher working', function (done) {
+  it('TLSv1.2 with cipher working', async function () {
     if (process.env.srv === 'maxscale' || process.env.srv === 'skysql-ha') this.skip();
     if (!sslEnable) this.skip();
     //MariaDB server doesn't permit TLSv1.2 on windows
@@ -497,147 +452,125 @@ describe('ssl', function () {
       this.skip();
     }
 
-    base
-      .createConnection({
-        ssl: {
-          rejectUnauthorized: false,
-          secureProtocol: 'TLSv1_2_method',
-          secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT,
-          ciphers:
-            'DHE-RSA-AES256-SHA:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256'
-        },
-        port: sslPort
-      })
-      .then((conn) => {
-        checkProtocol(conn, 'TLSv1.2');
-        conn.end();
-        done();
-      })
-      .catch(done);
+    const conn = await base.createConnection({
+      ssl: {
+        rejectUnauthorized: false,
+        secureProtocol: 'TLSv1_2_method',
+        secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT,
+        ciphers:
+          'DHE-RSA-AES256-SHA:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256'
+      },
+      port: sslPort
+    });
+    checkProtocol(conn, 'TLSv1.2');
+    await validConnection(conn);
+    conn.end();
   });
 
-  it('CA provided ignoring name verification', function (done) {
+  it('CA provided ignoring name verification', async function () {
     if (!sslEnable) this.skip();
     if (!ca) this.skip();
     if (!shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(5, 7, 10)) this.skip();
     if (Conf.baseConfig.host !== 'localhost') this.skip();
 
-    base
-      .createConnection({
-        ssl: {
-          ca: ca,
-          checkServerIdentity: (servername, cert) => {
-            return;
-          }
-        },
-        port: sslPort
-      })
-      .then((conn) => {
-        conn.end();
-        done();
-      })
-      .catch(done);
+    const conn = await base.createConnection({
+      ssl: {
+        ca: ca,
+        checkServerIdentity: (servername, cert) => {
+          return;
+        }
+      },
+      port: sslPort
+    });
+    await validConnection(conn);
+    conn.end();
   });
 
-  it('CA name verification error', function (done) {
+  it('CA name verification error', async function () {
     if (!sslEnable) this.skip();
     if (!ca) this.skip();
     if (!shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(5, 7, 10)) this.skip();
     if (Conf.baseConfig.host !== 'localhost') this.skip();
 
-    base
-      .createConnection({ host: '127.0.0.1', ssl: { ca: ca } })
-      .then(() => {
-        done(new Error('Must have thrown an exception !'));
-      })
-      .catch((err) => {
-        assert(
-          err.message.includes("Hostname/IP doesn't match certificate's altnames") ||
-            err.message.includes("Hostname/IP does not match certificate's altnames"),
-          'error was : ' + err.message
-        );
-        assert(err.message.includes("IP: 127.0.0.1 is not in the cert's list"), 'error was : ' + err.message);
-
-        done();
-      });
+    try {
+      await base.createConnection({ host: '127.0.0.1', ssl: { ca: ca } });
+      throw new Error('Must have thrown an exception !');
+    } catch (err) {
+      assert(
+        err.message.includes("Hostname/IP doesn't match certificate's altnames") ||
+          err.message.includes("Hostname/IP does not match certificate's altnames"),
+        'error was : ' + err.message
+      );
+      assert(err.message.includes("IP: 127.0.0.1 is not in the cert's list"), 'error was : ' + err.message);
+    }
   });
 
-  it('CA provided with matching cn', function (done) {
+  it('CA provided with matching cn', async function () {
     if (Conf.baseConfig.host !== 'localhost' && Conf.baseConfig.host !== 'mariadb.example.com') this.skip();
     if (!sslEnable) this.skip();
     if (!ca) this.skip();
     if (!shareConn.info.isMariaDB() && !shareConn.info.hasMinVersion(5, 7, 10)) this.skip();
 
-    base
-      .createConnection({ host: 'mariadb.example.com', ssl: { ca: ca }, port: sslPort })
-      .then((conn) => {
-        const isWin = process.platform === 'win32';
-        let expectedProtocol = ['TLSv1.2', 'TLSv1.3'];
-        if (shareConn.info.isMariaDB()) {
-          if (isWin && !shareConn.info.hasMinVersion(10, 4, 0)) {
-            expectedProtocol = 'TLSv1.1';
-          }
-        } else if (!shareConn.info.hasMinVersion(5, 7, 28)) {
-          expectedProtocol = 'TLSv1.1';
-        }
-        checkProtocol(conn, expectedProtocol);
-        conn.end();
-        done();
-      })
-      .catch(done);
+    const conn = await base.createConnection({ host: 'mariadb.example.com', ssl: { ca: ca }, port: sslPort });
+    const isWin = process.platform === 'win32';
+    let expectedProtocol = ['TLSv1.2', 'TLSv1.3'];
+    if (shareConn.info.isMariaDB()) {
+      if (isWin && !shareConn.info.hasMinVersion(10, 4, 0)) {
+        expectedProtocol = 'TLSv1.1';
+      }
+    } else if (!shareConn.info.hasMinVersion(5, 7, 28)) {
+      expectedProtocol = 'TLSv1.1';
+    }
+    checkProtocol(conn, expectedProtocol);
+    await validConnection(conn);
+    await conn.end();
   });
 
-  it('Mutual authentication without providing client certificate', function (done) {
+  it('Mutual authentication without providing client certificate', async function () {
     if (!sslEnable) this.skip();
     if (!ca) this.skip();
-
-    base
-      .createConnection({
+    let conn = null;
+    try {
+      conn = await base.createConnection({
         user: 'X509testUser',
         password: 'éà@d684SQpl¨^',
         host: 'mariadb.example.com',
         ssl: { ca: ca },
         port: sslPort
-      })
-      .then((conn) => {
-        conn.end();
-        if (process.env.srv !== 'maxscale' && process.env.srv !== 'skysql-ha') {
-          done(new Error('Must have thrown an exception !'));
-        } else {
-          done();
-        }
-      })
-      .catch((err) => {
-        done();
       });
+    } catch (err) {
+      // skip
+    }
+    if (conn) {
+      await validConnection(conn);
+      conn.end();
+      if (process.env.srv !== 'maxscale' && process.env.srv !== 'skysql-ha') {
+        throw new Error('Must have thrown an exception !');
+      }
+    }
   });
 
-  it('Mutual authentication providing client certificate', function (done) {
+  it('Mutual authentication providing client certificate', async function () {
     if (process.env.srv === 'maxscale' || process.env.srv === 'skysql-ha') this.skip();
     if (!sslEnable) this.skip();
     if (!ca || !clientKey || !clientCert) this.skip();
     if (!base.utf8Collation()) this.skip();
-
-    base
-      .createConnection({
-        user: 'X509testUser',
-        password: 'éà@d684SQpl¨^',
-        host: 'mariadb.example.com',
-        ssl: {
-          ca: ca,
-          cert: clientCert,
-          key: clientKey
-        },
-        port: sslPort
-      })
-      .then((conn) => {
-        conn.end();
-        done();
-      })
-      .catch(done);
+    const conn = await base.createConnection({
+      user: 'X509testUser',
+      password: 'éà@d684SQpl¨^',
+      host: 'mariadb.example.com',
+      ssl: {
+        ca: ca,
+        cert: clientCert,
+        key: clientKey
+      },
+      port: sslPort
+    });
+    await validConnection(conn);
+    conn.end();
   });
 
-  it('Mutual authentication providing client keystore', function (done) {
+  it('Mutual authentication providing client keystore', async function () {
     if (process.env.srv === 'maxscale' || process.env.srv === 'skysql-ha') this.skip();
     if (!sslEnable) this.skip();
     if (!ca || !clientKeystore) this.skip();
@@ -647,69 +580,48 @@ describe('ssl', function () {
     //on node.js 17+ client keystore won't be supported until installing openssl 3.0
     if (parseInt(ver[0]) >= 17) this.skip();
 
-    base
-      .createConnection({
-        user: 'X509testUser',
-        password: 'éà@d684SQpl¨^',
-        host: 'mariadb.example.com',
-        ssl: {
-          ca: ca,
-          pfx: clientKeystore,
-          passphrase: 'kspass'
-        },
-        port: sslPort
-      })
-      .then((conn) => {
-        conn.end();
-        done();
-      })
-      .catch(done);
+    const conn = await base.createConnection({
+      user: 'X509testUser',
+      password: 'éà@d684SQpl¨^',
+      host: 'mariadb.example.com',
+      ssl: {
+        ca: ca,
+        pfx: clientKeystore,
+        passphrase: 'kspass'
+      },
+      port: sslPort
+    });
+    await validConnection(conn);
+    conn.end();
   });
 
-  it('ssl change user', function (done) {
+  it('ssl change user', async function () {
     if (process.env.srv === 'maxscale' || process.env.srv === 'skysql-ha') this.skip();
     if (!shareConn.info.isMariaDB()) this.skip();
     if (!sslEnable) this.skip();
     let currUser;
-    let conn;
-    base
-      .createConnection({
-        ssl: { rejectUnauthorized: false },
-        port: sslPort
-      })
-      .then((con) => {
-        conn = con;
-        conn.query("DROP USER ChangeUser@'%'").catch((err) => {});
-        conn.query('FLUSH PRIVILEGES');
-        conn.query("CREATE USER ChangeUser@'%' IDENTIFIED BY 'mySupPassw@rd2'");
-        conn.query("GRANT SELECT ON *.* TO ChangeUser@'%' with grant option");
-        return conn.query('FLUSH PRIVILEGES');
-      })
-      .then(() => {
-        conn
-          .query('SELECT CURRENT_USER')
-          .then((res) => {
-            currUser = res[0]['CURRENT_USER'];
-            return conn.changeUser({
-              user: 'ChangeUser',
-              password: 'mySupPassw@rd2',
-              connectAttributes: { par1: 'bouh', par2: 'bla' }
-            });
-          })
-          .then(() => {
-            return conn.query('SELECT CURRENT_USER');
-          })
-          .then((res) => {
-            const user = res[0]['CURRENT_USER'];
-            assert.equal(user, 'ChangeUser@%');
-            assert(user !== currUser);
-            conn.query("DROP USER ChangeUser@'%'");
-            conn.end();
-            done();
-          })
-          .catch(done);
-      })
-      .catch(done);
+    const conn = await base.createConnection({
+      ssl: { rejectUnauthorized: false },
+      port: sslPort
+    });
+    conn.query("DROP USER ChangeUser@'%'").catch((err) => {});
+    conn.query('FLUSH PRIVILEGES');
+    conn.query("CREATE USER ChangeUser@'%' IDENTIFIED BY 'mySupPassw@rd2'");
+    conn.query("GRANT SELECT ON *.* TO ChangeUser@'%' with grant option");
+    await conn.query('FLUSH PRIVILEGES');
+    let res = await conn.query('SELECT CURRENT_USER');
+    currUser = res[0]['CURRENT_USER'];
+    await conn.changeUser({
+      user: 'ChangeUser',
+      password: 'mySupPassw@rd2',
+      connectAttributes: { par1: 'bouh', par2: 'bla' }
+    });
+    res = await conn.query('SELECT CURRENT_USER');
+    const user = res[0]['CURRENT_USER'];
+    assert.equal(user, 'ChangeUser@%');
+    assert(user !== currUser);
+    conn.query("DROP USER ChangeUser@'%'");
+    conn.end();
   });
 });
 
@@ -728,4 +640,9 @@ function checkProtocol(conn, protocol) {
     }
     assert.equal(currentProtocol, protocol);
   }
+}
+
+async function validConnection(conn) {
+  let rows = await conn.query("SELECT 'a' t");
+  assert.deepEqual(rows, [{ t: 'a' }]);
 }
